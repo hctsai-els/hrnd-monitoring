@@ -147,13 +147,28 @@
   }
 
   #error-msg {
-    background: #ffeaea;
-    border: 1px solid #ffbaba;
-    border-radius: 6px;
-    padding: 16px;
+    background: #fff8e1;
+    border: 1px solid #ffe082;
+    border-radius: 8px;
+    padding: 24px 28px;
     margin-bottom: 20px;
-    font-size: 0.85rem;
+    font-size: 0.88rem;
+    line-height: 1.7;
     display: none;
+  }
+  #error-msg h3 {
+    font-size: 1rem;
+    margin-bottom: 10px;
+    color: #b45309;
+  }
+  #error-msg code {
+    background: #f4f5f7;
+    border-radius: 3px;
+    padding: 2px 6px;
+    font-size: 0.82rem;
+  }
+  #error-msg ol {
+    margin: 8px 0 0 20px;
   }
 </style>
 </head>
@@ -551,7 +566,18 @@ async function init() {
   } catch (err) {
     const el = document.getElementById('error-msg');
     el.style.display = 'block';
-    el.innerHTML = `<strong>Data not loaded.</strong> Run <code>python3 extract_data.py</code> to generate the data files, then reload this page.<br><small>${err.message}</small>`;
+    el.innerHTML = `
+      <h3>Dashboard data not yet loaded</h3>
+      <p>This dashboard displays data that is refreshed manually from Snowflake. The data files have not been pushed to this site yet.</p>
+      <p><strong>If you are Puppy or Sharvari</strong>, refresh the data by running:</p>
+      <ol>
+        <li>Make sure you are on the Elsevier network (or VPN + Zscaler)</li>
+        <li>In your terminal: <code>cd ~/projects/hrnd-monitoring &amp;&amp; python3 extract_data.py</code></li>
+        <li>Then: <code>git add data/ &amp;&amp; git commit -m "chore: refresh data" &amp;&amp; git push</code></li>
+        <li>Wait ~1 minute, then reload this page</li>
+      </ol>
+      <p style="margin-top:10px;font-size:0.78rem;color:#78716c"><em>Technical detail: ${err.message}</em></p>
+    `;
     document.getElementById('refresh-badge').textContent = 'No data';
   }
 }
