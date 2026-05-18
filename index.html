@@ -1,0 +1,485 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>HRND Prediction Model Monitor</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: #f4f5f7;
+    color: #172b4d;
+    min-height: 100vh;
+  }
+
+  header {
+    background: #003366;
+    color: #fff;
+    padding: 20px 32px;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+  }
+  header h1 { font-size: 1.25rem; font-weight: 600; }
+  header p  { font-size: 0.8rem; opacity: 0.7; margin-top: 4px; }
+  #refresh-badge {
+    font-size: 0.75rem;
+    background: rgba(255,255,255,0.15);
+    padding: 4px 10px;
+    border-radius: 12px;
+    white-space: nowrap;
+  }
+
+  .main { max-width: 1200px; margin: 0 auto; padding: 24px 20px; }
+
+  /* KPI row */
+  .kpi-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 12px;
+    margin-bottom: 28px;
+  }
+  .kpi {
+    background: #fff;
+    border-radius: 8px;
+    padding: 16px 18px;
+    border-left: 4px solid #003366;
+    box-shadow: 0 1px 3px rgba(0,0,0,.08);
+  }
+  .kpi.warn  { border-color: #e67e22; }
+  .kpi.danger{ border-color: #c0392b; }
+  .kpi.ok    { border-color: #27ae60; }
+  .kpi-value { font-size: 1.9rem; font-weight: 700; line-height: 1; }
+  .kpi-label { font-size: 0.75rem; color: #5e6c84; margin-top: 6px; }
+
+  /* Grid */
+  .grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+    margin-bottom: 20px;
+  }
+  .grid.full { grid-template-columns: 1fr; }
+  @media(max-width: 760px){ .grid { grid-template-columns: 1fr; } }
+
+  .card {
+    background: #fff;
+    border-radius: 8px;
+    padding: 20px 22px;
+    box-shadow: 0 1px 3px rgba(0,0,0,.08);
+  }
+  .card h2 {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: #172b4d;
+    margin-bottom: 4px;
+  }
+  .card .subtitle {
+    font-size: 0.75rem;
+    color: #5e6c84;
+    margin-bottom: 16px;
+  }
+  .chart-wrap { position: relative; height: 280px; }
+
+  /* Threshold table */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.82rem;
+  }
+  th {
+    text-align: left;
+    padding: 8px 10px;
+    background: #f4f5f7;
+    font-weight: 600;
+    color: #5e6c84;
+    text-transform: uppercase;
+    font-size: 0.7rem;
+    letter-spacing: .04em;
+  }
+  td { padding: 8px 10px; border-top: 1px solid #ebecf0; }
+  tr.highlight { background: #fffbe6; font-weight: 600; }
+  tr.current   { background: #e8f4fd; }
+  .pill {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 0.72rem;
+    font-weight: 600;
+  }
+  .pill.current { background: #e8f4fd; color: #0052cc; }
+  .pill.target  { background: #fffbe6; color: #974f0c; }
+
+  /* Confidence buckets */
+  .confidence-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 12px;
+    margin-top: 8px;
+  }
+  .conf-card {
+    border: 1px solid #ebecf0;
+    border-radius: 6px;
+    padding: 12px 14px;
+    text-align: center;
+  }
+  .conf-card .bucket { font-size: 0.78rem; font-weight: 600; color: #5e6c84; margin-bottom: 4px; }
+  .conf-card .medae  { font-size: 1.5rem; font-weight: 700; }
+  .conf-card .range  { font-size: 0.7rem; color: #5e6c84; margin-top: 2px; }
+  .conf-card .n      { font-size: 0.7rem; color: #97a0af; margin-top: 4px; }
+  .high   { border-color: #27ae60; }
+  .high   .medae { color: #27ae60; }
+  .medium { border-color: #e67e22; }
+  .medium .medae { color: #e67e22; }
+  .low    { border-color: #c0392b; }
+  .low    .medae { color: #c0392b; }
+
+  .note {
+    font-size: 0.72rem;
+    color: #5e6c84;
+    margin-top: 14px;
+    line-height: 1.5;
+    border-top: 1px solid #ebecf0;
+    padding-top: 10px;
+  }
+
+  #error-msg {
+    background: #ffeaea;
+    border: 1px solid #ffbaba;
+    border-radius: 6px;
+    padding: 16px;
+    margin-bottom: 20px;
+    font-size: 0.85rem;
+    display: none;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>HRND · Prediction Model Monitor</h1>
+    <p>HESI Likely Exit Score — predicted vs. actual performance</p>
+  </div>
+  <div id="refresh-badge">Loading data…</div>
+</header>
+
+<div class="main">
+  <div id="error-msg"></div>
+
+  <!-- KPIs -->
+  <div class="kpi-row" id="kpi-row">
+    <div class="kpi danger">
+      <div class="kpi-value" id="kpi-miss-rate">—</div>
+      <div class="kpi-label">At-risk miss rate (threshold 850)</div>
+    </div>
+    <div class="kpi warn">
+      <div class="kpi-value" id="kpi-medae">—</div>
+      <div class="kpi-label">Median absolute error (pts)</div>
+    </div>
+    <div class="kpi warn">
+      <div class="kpi-value" id="kpi-mae">—</div>
+      <div class="kpi-label">Mean absolute error (pts)</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-value" id="kpi-pct50">—</div>
+      <div class="kpi-label">Predictions within ±50 pts</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-value" id="kpi-pct100">—</div>
+      <div class="kpi-label">Predictions within ±100 pts</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-value" id="kpi-n">—</div>
+      <div class="kpi-label">Students with actual scores</div>
+    </div>
+  </div>
+
+  <!-- Row 1: error dist + miss rate trend -->
+  <div class="grid">
+    <div class="card">
+      <h2>Prediction Error Distribution</h2>
+      <p class="subtitle">Count of students by (actual − predicted) in 10-pt bands</p>
+      <div class="chart-wrap"><canvas id="chart-error-dist"></canvas></div>
+      <p class="note">Bands left of zero = model overpredicted (student scored lower than expected). Bands right of zero = model underpredicted. The distribution should be centered near zero with no strong skew.</p>
+    </div>
+    <div class="card">
+      <h2>At-Risk Miss Rate — 24-Month Trend</h2>
+      <p class="subtitle">% of students who actually scored &lt;850 but were predicted ≥850 (false negatives)</p>
+      <div class="chart-wrap"><canvas id="chart-miss-trend"></canvas></div>
+      <p class="note">Target: ≤20%. Current threshold: 850. Raising to 870 is estimated to reduce miss rate to ~21.5% (see threshold table).</p>
+    </div>
+  </div>
+
+  <!-- Row 2: threshold table full width -->
+  <div class="grid full">
+    <div class="card">
+      <h2>Threshold Comparison</h2>
+      <p class="subtitle">How miss rate, recall, and false positives change at different LHES alert thresholds. At-risk definition fixed at actual score &lt;850.</p>
+      <table id="threshold-table">
+        <thead>
+          <tr>
+            <th>Threshold</th>
+            <th>Miss rate %</th>
+            <th>Recall %</th>
+            <th>Precision %</th>
+            <th>True positives</th>
+            <th>False negatives</th>
+            <th>False positives</th>
+            <th>Total flagged</th>
+          </tr>
+        </thead>
+        <tbody id="threshold-tbody"></tbody>
+      </table>
+      <p class="note">
+        <strong>Current</strong> (850): highlighted in blue. &nbsp;
+        <strong>Candidate</strong> (870): highlighted in yellow — drops miss rate to ~21.5% but flags 60K additional students who would have scored ≥850.
+        The trade-off depends on intervention capacity.
+      </p>
+    </div>
+  </div>
+
+  <!-- Row 3: scatter + confidence by exam count -->
+  <div class="grid">
+    <div class="card">
+      <h2>Predicted vs. Actual Score</h2>
+      <p class="subtitle">Sample of 5,000 students. Points on the diagonal = perfect prediction.</p>
+      <div class="chart-wrap"><canvas id="chart-scatter"></canvas></div>
+      <p class="note">Model compresses toward the mean: low scorers are overpredicted (points above diagonal on the left), high scorers are underpredicted (points below diagonal on the right).</p>
+    </div>
+    <div class="card">
+      <h2>Prediction Confidence by Exams Taken</h2>
+      <p class="subtitle">Median absolute error drops as students complete more specialty exams</p>
+      <div id="confidence-grid" class="confidence-grid"></div>
+      <div class="chart-wrap" style="height:200px;margin-top:16px;"><canvas id="chart-conf"></canvas></div>
+      <p class="note">Students with ≤2 specialty exams have high prediction uncertainty. Consider flagging these predictions as "low confidence" in the UI until ≥3–4 exams are completed.</p>
+    </div>
+  </div>
+</div>
+
+<script>
+const CHART_COLORS = {
+  blue:   '#0052cc',
+  orange: '#e67e22',
+  red:    '#c0392b',
+  green:  '#27ae60',
+  grey:   '#ebecf0',
+  muted:  'rgba(0,82,204,0.15)',
+};
+
+async function loadJSON(path) {
+  const r = await fetch(path);
+  if (!r.ok) throw new Error(`${path} not found (${r.status})`);
+  return r.json();
+}
+
+function fmt(v, decimals=1) {
+  if (v == null) return '—';
+  return typeof v === 'number' ? v.toFixed(decimals) : v;
+}
+function fmtPct(v) { return v != null ? fmt(v) + '%' : '—'; }
+function fmtInt(v) { return v != null ? Number(v).toLocaleString() : '—'; }
+
+async function init() {
+  try {
+    const [meta, errDist, missTrend, thresholds, scatter, examConf] = await Promise.all([
+      loadJSON('data/metadata.json'),
+      loadJSON('data/error_distribution.json'),
+      loadJSON('data/miss_rate_trend.json'),
+      loadJSON('data/threshold_comparison.json'),
+      loadJSON('data/scatter_sample.json'),
+      loadJSON('data/error_by_exam_count.json'),
+    ]);
+
+    // Refresh badge
+    const dt = new Date(meta.refreshed_at);
+    document.getElementById('refresh-badge').textContent =
+      'Data as of ' + dt.toLocaleDateString('en-US', {month:'short', day:'numeric', year:'numeric'});
+
+    // KPIs — compute miss rate from threshold table at 850
+    const t850 = thresholds.find(t => t.threshold === 850);
+    if (t850) {
+      document.getElementById('kpi-miss-rate').textContent = fmtPct(t850.miss_rate);
+    }
+    document.getElementById('kpi-medae').textContent   = fmt(meta.medae, 1);
+    document.getElementById('kpi-mae').textContent     = fmt(meta.mae, 1);
+    document.getElementById('kpi-pct50').textContent   = fmtPct(meta.pct_within_50);
+    document.getElementById('kpi-pct100').textContent  = fmtPct(meta.pct_within_100);
+    document.getElementById('kpi-n').textContent       = fmtInt(meta.n_students_with_actual);
+
+    // ── Chart 1: Error distribution ─────────────────────────────────────────
+    {
+      const bands = errDist.map(r => r.band);
+      const counts = errDist.map(r => r.count);
+      const colors = bands.map(b => {
+        const v = parseInt(b);
+        if (v < -50 || v > 50) return 'rgba(192,57,43,0.6)';
+        if (v < 0)             return 'rgba(230,126,34,0.6)';
+        return 'rgba(0,82,204,0.6)';
+      });
+      new Chart(document.getElementById('chart-error-dist'), {
+        type: 'bar',
+        data: { labels: bands, datasets: [{ data: counts, backgroundColor: colors, borderWidth: 0 }] },
+        options: {
+          plugins: { legend: { display: false } },
+          scales: {
+            x: { title: { display: true, text: 'Error (actual − predicted, pts)', font: { size: 11 } },
+                 ticks: { maxTicksLimit: 15, font: { size: 10 } } },
+            y: { title: { display: true, text: 'Students', font: { size: 11 } },
+                 ticks: { font: { size: 10 } } },
+          },
+          maintainAspectRatio: false,
+        }
+      });
+    }
+
+    // ── Chart 2: Miss rate trend ─────────────────────────────────────────────
+    {
+      const months = missTrend.map(r => r.month ? r.month.slice(0,7) : '');
+      const rates  = missTrend.map(r => r.miss_rate_pct);
+      new Chart(document.getElementById('chart-miss-trend'), {
+        type: 'line',
+        data: {
+          labels: months,
+          datasets: [{
+            data: rates,
+            borderColor: CHART_COLORS.red,
+            backgroundColor: 'rgba(192,57,43,0.08)',
+            fill: true,
+            tension: 0.3,
+            pointRadius: 3,
+          }, {
+            data: months.map(() => 20),
+            borderColor: CHART_COLORS.green,
+            borderDash: [6, 3],
+            borderWidth: 1.5,
+            pointRadius: 0,
+            label: 'Target 20%',
+          }]
+        },
+        options: {
+          plugins: { legend: { display: false },
+                     tooltip: { callbacks: { label: ctx => fmtPct(ctx.raw) } } },
+          scales: {
+            x: { ticks: { maxTicksLimit: 12, font: { size: 10 } } },
+            y: { title: { display: true, text: 'Miss rate %', font: { size: 11 } },
+                 ticks: { callback: v => v + '%', font: { size: 10 } },
+                 min: 0 },
+          },
+          maintainAspectRatio: false,
+        }
+      });
+    }
+
+    // ── Threshold table ──────────────────────────────────────────────────────
+    {
+      const tbody = document.getElementById('threshold-tbody');
+      thresholds.forEach(row => {
+        const isCurrent = row.threshold === 850;
+        const isTarget  = row.threshold === 870;
+        const tr = document.createElement('tr');
+        if (isCurrent) tr.className = 'current';
+        if (isTarget)  tr.className = 'highlight';
+        tr.innerHTML = `
+          <td>
+            ${row.threshold}
+            ${isCurrent ? '<span class="pill current">current</span>' : ''}
+            ${isTarget  ? '<span class="pill target">candidate</span>' : ''}
+          </td>
+          <td>${fmtPct(row.miss_rate)}</td>
+          <td>${fmtPct(row.recall)}</td>
+          <td>${fmtPct(row.precision)}</td>
+          <td>${fmtInt(row.true_positives)}</td>
+          <td>${fmtInt(row.false_negatives)}</td>
+          <td>${fmtInt(row.false_positives)}</td>
+          <td>${fmtInt(row.true_positives + row.false_positives)}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    // ── Chart 3: Scatter ─────────────────────────────────────────────────────
+    {
+      const pts = scatter.map(r => ({ x: r.predicted, y: r.actual }));
+      const minV = 300, maxV = 1500;
+      new Chart(document.getElementById('chart-scatter'), {
+        type: 'scatter',
+        data: {
+          datasets: [
+            { data: pts, backgroundColor: 'rgba(0,82,204,0.08)', pointRadius: 2, label: 'Students' },
+            { data: [{x: minV, y: minV}, {x: maxV, y: maxV}],
+              type: 'line', borderColor: CHART_COLORS.red, borderWidth: 1.5,
+              borderDash: [6,3], pointRadius: 0, label: 'Perfect prediction' },
+          ]
+        },
+        options: {
+          plugins: { legend: { display: false } },
+          scales: {
+            x: { min: minV, max: maxV,
+                 title: { display: true, text: 'Predicted score', font: { size: 11 } },
+                 ticks: { font: { size: 10 } } },
+            y: { min: minV, max: maxV,
+                 title: { display: true, text: 'Actual score', font: { size: 11 } },
+                 ticks: { font: { size: 10 } } },
+          },
+          maintainAspectRatio: false,
+        }
+      });
+    }
+
+    // ── Confidence cards + bar chart ─────────────────────────────────────────
+    {
+      const bucketColors = { '1–2 exams':'low', '3–4 exams':'low', '5–7 exams':'medium', '8+ exams':'high' };
+      const grid = document.getElementById('confidence-grid');
+      examConf.forEach(row => {
+        const cls = bucketColors[row.exam_bucket] || 'medium';
+        grid.innerHTML += `
+          <div class="conf-card ${cls}">
+            <div class="bucket">${row.exam_bucket}</div>
+            <div class="medae">${fmt(row.medae, 0)} pts</div>
+            <div class="range">IQR: ${fmt(row.p25_error,0)}–${fmt(row.p75_error,0)} pts</div>
+            <div class="n">${fmtInt(row.n_students)} students</div>
+          </div>`;
+      });
+
+      const buckets = examConf.map(r => r.exam_bucket);
+      const medaes  = examConf.map(r => r.medae);
+      const barColors = examConf.map(r => {
+        const m = r.medae;
+        if (m > 70) return CHART_COLORS.red;
+        if (m > 50) return CHART_COLORS.orange;
+        return CHART_COLORS.green;
+      });
+      new Chart(document.getElementById('chart-conf'), {
+        type: 'bar',
+        data: {
+          labels: buckets,
+          datasets: [{ data: medaes, backgroundColor: barColors, borderWidth: 0, label: 'MedAE (pts)' }]
+        },
+        options: {
+          plugins: { legend: { display: false } },
+          scales: {
+            x: { ticks: { font: { size: 10 } } },
+            y: { title: { display: true, text: 'Median absolute error (pts)', font: { size: 11 } },
+                 ticks: { font: { size: 10 } } },
+          },
+          maintainAspectRatio: false,
+        }
+      });
+    }
+
+  } catch (err) {
+    const el = document.getElementById('error-msg');
+    el.style.display = 'block';
+    el.innerHTML = `<strong>Data not loaded.</strong> Run <code>python3 extract_data.py</code> to generate the data files, then reload this page.<br><small>${err.message}</small>`;
+    document.getElementById('refresh-badge').textContent = 'No data';
+  }
+}
+
+init();
+</script>
+</body>
+</html>
