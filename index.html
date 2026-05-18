@@ -54,6 +54,7 @@
   .kpi.ok    { border-color: #27ae60; }
   .kpi-value { font-size: 1.9rem; font-weight: 700; line-height: 1; }
   .kpi-label { font-size: 0.75rem; color: #5e6c84; margin-top: 6px; }
+  .kpi-def   { font-size: 0.68rem; color: #8993a4; margin-top: 4px; line-height: 1.4; }
 
   /* Grid */
   .grid {
@@ -189,7 +190,8 @@
   <div class="kpi-row" id="kpi-row">
     <div class="kpi danger">
       <div class="kpi-value" id="kpi-miss-rate">—</div>
-      <div class="kpi-label">At-risk miss rate (threshold 850)</div>
+      <div class="kpi-label">At-risk miss rate @ threshold 850</div>
+      <div class="kpi-def">Of students who actually scored &lt;850, % the model predicted safe (≥850)</div>
     </div>
     <div class="kpi warn">
       <div class="kpi-value" id="kpi-medae">—</div>
@@ -223,9 +225,9 @@
     </div>
     <div class="card">
       <h2>At-Risk Miss Rate — 24-Month Trend</h2>
-      <p class="subtitle">% of students who actually scored &lt;850 but were predicted ≥850 (false negatives)</p>
+      <p class="subtitle">Of students who actually scored &lt;850, % the model predicted safe (≥850) — i.e. students who needed intervention but were not flagged</p>
       <div class="chart-wrap"><canvas id="chart-miss-trend"></canvas></div>
-      <p class="note">Target: ≤20%. Current threshold: 850. Raising to 870 is estimated to reduce miss rate to ~21.5% (see threshold table).</p>
+      <p class="note">Target: ≤20%. Current threshold: 850. Raising to 870 is estimated to reduce miss rate to ~21.5% (see threshold table below). Formula: false positives ÷ (false positives + true negatives), where "positive" = predicted safe.</p>
     </div>
   </div>
 
@@ -233,7 +235,7 @@
   <div class="grid full">
     <div class="card">
       <h2>Threshold Comparison</h2>
-      <p class="subtitle">How miss rate, recall, and false positives change at different LHES alert thresholds. At-risk definition fixed at actual score &lt;850.</p>
+      <p class="subtitle">How performance changes at different LHES alert thresholds. At-risk = actual score &lt;850 (fixed). <strong>Miss rate</strong> = % of truly at-risk students the model predicted safe (false positives ÷ total actually at-risk).</p>
       <table id="threshold-table">
         <thead>
           <tr>

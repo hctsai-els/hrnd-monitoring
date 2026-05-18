@@ -146,7 +146,9 @@ def main():
         fn = ((df_thresh_base["PREDICTED"] < t)  & (df_thresh_base["ACTUAL"] >= 850)).sum()
         tn = ((df_thresh_base["PREDICTED"] < t)  & (df_thresh_base["ACTUAL"] < 850)).sum()
         at_risk_total = fp + tn  # actual <850
-        miss_rate = round(fn / (tp + fn) * 100, 2) if (tp + fn) > 0 else None
+        # miss_rate = % of truly at-risk students (actual <850) the model failed to flag
+        # = FP / (FP + TN), where FP = predicted safe but actually at-risk
+        miss_rate = round(fp / (fp + tn) * 100, 2) if (fp + tn) > 0 else None
         recall    = round(tp / (tp + fn) * 100, 2) if (tp + fn) > 0 else None
         precision = round(tp / (tp + fp) * 100, 2) if (tp + fp) > 0 else None
         threshold_rows.append({
