@@ -242,7 +242,7 @@
     </div>
   </div>
 
-  <!-- Row 3: scatter + confidence by exam count -->
+  <!-- Row 3: scatter + error by predicted score band -->
   <div class="grid">
     <div class="card">
       <h2>Predicted vs. Actual Score</h2>
@@ -251,11 +251,21 @@
       <p class="note">Model compresses toward the mean: low scorers are overpredicted (points above diagonal on the left), high scorers are underpredicted (points below diagonal on the right).</p>
     </div>
     <div class="card">
-      <h2>Prediction Confidence by Exams Taken</h2>
-      <p class="subtitle">Median absolute error drops as students complete more specialty exams</p>
-      <div id="confidence-grid" class="confidence-grid"></div>
-      <div class="chart-wrap" style="height:200px;margin-top:16px;"><canvas id="chart-conf"></canvas></div>
-      <p class="note">Students with ≤2 specialty exams have high prediction uncertainty. Consider flagging these predictions as "low confidence" in the UI until ≥3–4 exams are completed.</p>
+      <h2>Error by Predicted Score Band</h2>
+      <p class="subtitle">MedAE and average bias broken down by where the model placed the student</p>
+      <div class="chart-wrap"><canvas id="chart-score-band"></canvas></div>
+      <p class="note">Avg bias &gt; 0 = model underpredicted (student scored higher). Avg bias &lt; 0 = model overpredicted (student scored lower). Largest errors expected at extremes (&lt;750 and 950+).</p>
+    </div>
+  </div>
+
+  <!-- Row 4: engagement span full width -->
+  <div class="grid full">
+    <div class="card">
+      <h2>Error by Student Engagement Span</h2>
+      <p class="subtitle">Days between a student's first and last recorded exam — proxy for time in the system. Does longer engagement improve prediction accuracy?</p>
+      <div id="engagement-grid" class="confidence-grid"></div>
+      <div class="chart-wrap" style="height:200px; margin-top:16px;"><canvas id="chart-engagement"></canvas></div>
+      <p class="note">Students with short engagement spans (under 30 days) may have limited history for the model to draw on. Longer spans generally correlate with more data points and potentially tighter predictions.</p>
     </div>
   </div>
 </div>
@@ -285,13 +295,14 @@ function fmtInt(v) { return v != null ? Number(v).toLocaleString() : '—'; }
 
 async function init() {
   try {
-    const [meta, errDist, missTrend, thresholds, scatter, examConf] = await Promise.all([
+    const [meta, errDist, missTrend, thresholds, scatter, engagement, scoreBand] = await Promise.all([
       loadJSON('data/metadata.json'),
       loadJSON('data/error_distribution.json'),
       loadJSON('data/miss_rate_trend.json'),
       loadJSON('data/threshold_comparison.json'),
       loadJSON('data/scatter_sample.json'),
-      loadJSON('data/error_by_exam_count.json'),
+      loadJSON('data/error_by_engagement.json'),
+      loadJSON('data/error_by_score_band.json'),
     ]);
 
     // Refresh badge
@@ -430,41 +441,107 @@ async function init() {
       });
     }
 
-    // ── Confidence cards + bar chart ─────────────────────────────────────────
+    // ── Chart 4: Error by predicted score band ───────────────────────────────
     {
-      const bucketColors = { '1–2 exams':'low', '3–4 exams':'low', '5–7 exams':'medium', '8+ exams':'high' };
-      const grid = document.getElementById('confidence-grid');
-      examConf.forEach(row => {
-        const cls = bucketColors[row.exam_bucket] || 'medium';
+      const bands  = scoreBand.map(r => r.score_band);
+      const medaes = scoreBand.map(r => r.medae);
+      const biases = scoreBand.map(r => r.avg_bias);
+      new Chart(document.getElementById('chart-score-band'), {
+        type: 'bar',
+        data: {
+          labels: bands,
+          datasets: [
+            {
+              label: 'MedAE (pts)',
+              data: medaes,
+              backgroundColor: medaes.map(v => v > 80 ? CHART_COLORS.red : v > 55 ? CHART_COLORS.orange : CHART_COLORS.blue),
+              borderWidth: 0,
+              yAxisID: 'y',
+            },
+            {
+              label: 'Avg bias (pts)',
+              data: biases,
+              type: 'line',
+              borderColor: CHART_COLORS.orange,
+              backgroundColor: 'transparent',
+              pointRadius: 4,
+              borderWidth: 2,
+              yAxisID: 'y',
+            },
+          ]
+        },
+        options: {
+          plugins: {
+            legend: { display: true, position: 'top', labels: { font: { size: 10 }, boxWidth: 12 } },
+            tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${fmt(ctx.raw, 1)} pts` } },
+          },
+          scales: {
+            x: { ticks: { font: { size: 10 } } },
+            y: {
+              title: { display: true, text: 'Points', font: { size: 11 } },
+              ticks: { font: { size: 10 } },
+            },
+          },
+          maintainAspectRatio: false,
+        }
+      });
+    }
+
+    // ── Chart 5: Engagement span cards + bar chart ───────────────────────────
+    {
+      const engagementColors = { 'Under 30 days': 'low', '30–89 days': 'low', '90–179 days': 'medium', '180+ days': 'high' };
+      const grid = document.getElementById('engagement-grid');
+      engagement.forEach(row => {
+        const cls = engagementColors[row.engagement_bucket] || 'medium';
+        const biasLabel = row.avg_bias > 0 ? `+${fmt(row.avg_bias,1)} bias` : `${fmt(row.avg_bias,1)} bias`;
         grid.innerHTML += `
           <div class="conf-card ${cls}">
-            <div class="bucket">${row.exam_bucket}</div>
+            <div class="bucket">${row.engagement_bucket}</div>
             <div class="medae">${fmt(row.medae, 0)} pts</div>
             <div class="range">IQR: ${fmt(row.p25_error,0)}–${fmt(row.p75_error,0)} pts</div>
+            <div class="range">${biasLabel}</div>
             <div class="n">${fmtInt(row.n_students)} students</div>
           </div>`;
       });
 
-      const buckets = examConf.map(r => r.exam_bucket);
-      const medaes  = examConf.map(r => r.medae);
-      const barColors = examConf.map(r => {
-        const m = r.medae;
-        if (m > 70) return CHART_COLORS.red;
-        if (m > 50) return CHART_COLORS.orange;
-        return CHART_COLORS.green;
-      });
-      new Chart(document.getElementById('chart-conf'), {
+      const buckets = engagement.map(r => r.engagement_bucket);
+      const medaes  = engagement.map(r => r.medae);
+      const biases  = engagement.map(r => r.avg_bias);
+      new Chart(document.getElementById('chart-engagement'), {
         type: 'bar',
         data: {
           labels: buckets,
-          datasets: [{ data: medaes, backgroundColor: barColors, borderWidth: 0, label: 'MedAE (pts)' }]
+          datasets: [
+            {
+              label: 'MedAE (pts)',
+              data: medaes,
+              backgroundColor: medaes.map(v => v > 80 ? CHART_COLORS.red : v > 55 ? CHART_COLORS.orange : CHART_COLORS.green),
+              borderWidth: 0,
+              yAxisID: 'y',
+            },
+            {
+              label: 'Avg bias (pts)',
+              data: biases,
+              type: 'line',
+              borderColor: CHART_COLORS.orange,
+              backgroundColor: 'transparent',
+              pointRadius: 4,
+              borderWidth: 2,
+              yAxisID: 'y',
+            },
+          ]
         },
         options: {
-          plugins: { legend: { display: false } },
+          plugins: {
+            legend: { display: true, position: 'top', labels: { font: { size: 10 }, boxWidth: 12 } },
+            tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${fmt(ctx.raw, 1)} pts` } },
+          },
           scales: {
             x: { ticks: { font: { size: 10 } } },
-            y: { title: { display: true, text: 'Median absolute error (pts)', font: { size: 11 } },
-                 ticks: { font: { size: 10 } } },
+            y: {
+              title: { display: true, text: 'Points', font: { size: 11 } },
+              ticks: { font: { size: 10 } },
+            },
           },
           maintainAspectRatio: false,
         }

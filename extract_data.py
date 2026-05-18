@@ -161,41 +161,69 @@ def main():
         })
     save("threshold_comparison", threshold_rows)
 
-    # ── 4. Error by number of specialty exams ────────────────────────────────
-    print("\n4/4  Error by exam count")
-    df_conf = run_query(cur, f"""
-        WITH base AS (
-            SELECT
-                p.EVOLVEUSERNAME,
-                p.CURRENT_PREDICTED_EXITSCORE::FLOAT AS predicted,
-                p.CURRENT_ACTUAL_EXITSCORE::FLOAT    AS actual,
-                COUNT(DISTINCT t.EXAMKEY)             AS specialty_exam_count
-            FROM {DB}.HESIDW_FACT_STUDENT_PREDICTION p
-            JOIN {DB}.HESIDW_FACT_TEST_TAKING_EDITION t
-              ON p.EVOLVEUSERNAME = t.TESTTAKERKEY::VARCHAR
-            WHERE p.CURRENT_ACTUAL_EXITSCORE IS NOT NULL
-              AND p.CURRENT_PREDICTED_EXITSCORE IS NOT NULL
-            GROUP BY 1, 2, 3
-        )
+    # ── 4a. Error by engagement span (days between first and last exam) ──────
+    print("\n4/5  Error by engagement span")
+    df_engagement = run_query(cur, f"""
         SELECT
             CASE
-                WHEN specialty_exam_count <= 2  THEN '1–2 exams'
-                WHEN specialty_exam_count <= 4  THEN '3–4 exams'
-                WHEN specialty_exam_count <= 7  THEN '5–7 exams'
-                ELSE '8+ exams'
-            END AS exam_bucket,
-            COUNT(*)                                             AS n_students,
-            ROUND(MEDIAN(ABS(actual - predicted)), 1)           AS medae,
-            ROUND(AVG(ABS(actual - predicted)), 1)              AS mae,
+                WHEN DATEDIFF(day, FIRSTDATETAKEN, LASTDATETAKEN) < 30  THEN 'Under 30 days'
+                WHEN DATEDIFF(day, FIRSTDATETAKEN, LASTDATETAKEN) < 90  THEN '30–89 days'
+                WHEN DATEDIFF(day, FIRSTDATETAKEN, LASTDATETAKEN) < 180 THEN '90–179 days'
+                ELSE '180+ days'
+            END                                                          AS engagement_bucket,
+            COUNT(*)                                                     AS n_students,
+            ROUND(MEDIAN(ABS(CURRENT_ACTUAL_EXITSCORE::FLOAT
+                           - CURRENT_PREDICTED_EXITSCORE::FLOAT)), 1)   AS medae,
+            ROUND(AVG(ABS(CURRENT_ACTUAL_EXITSCORE::FLOAT
+                        - CURRENT_PREDICTED_EXITSCORE::FLOAT)), 1)      AS mae,
             ROUND(PERCENTILE_CONT(0.25) WITHIN GROUP
-                  (ORDER BY ABS(actual - predicted)), 1)        AS p25_error,
+                  (ORDER BY ABS(CURRENT_ACTUAL_EXITSCORE::FLOAT
+                              - CURRENT_PREDICTED_EXITSCORE::FLOAT)), 1) AS p25_error,
             ROUND(PERCENTILE_CONT(0.75) WITHIN GROUP
-                  (ORDER BY ABS(actual - predicted)), 1)        AS p75_error
-        FROM base
+                  (ORDER BY ABS(CURRENT_ACTUAL_EXITSCORE::FLOAT
+                              - CURRENT_PREDICTED_EXITSCORE::FLOAT)), 1) AS p75_error,
+            ROUND(AVG(CURRENT_ACTUAL_EXITSCORE::FLOAT
+                    - CURRENT_PREDICTED_EXITSCORE::FLOAT), 1)           AS avg_bias
+        FROM {DB}.HESIDW_FACT_STUDENT_PREDICTION
+        WHERE CURRENT_ACTUAL_EXITSCORE IS NOT NULL
+          AND CURRENT_PREDICTED_EXITSCORE IS NOT NULL
+          AND FIRSTDATETAKEN IS NOT NULL
+          AND LASTDATETAKEN  IS NOT NULL
         GROUP BY 1
-        ORDER BY MIN(specialty_exam_count)
-    """, "error by exam count")
-    save("error_by_exam_count", df_conf.rename(columns=str.lower).to_dict(orient="records"))
+        ORDER BY MIN(DATEDIFF(day, FIRSTDATETAKEN, LASTDATETAKEN))
+    """, "error by engagement span")
+    save("error_by_engagement", df_engagement.rename(columns=str.lower).to_dict(orient="records"))
+
+    # ── 4b. Error by predicted score band ────────────────────────────────────
+    print("\n5/5  Error by predicted score band")
+    df_band = run_query(cur, f"""
+        SELECT
+            CASE
+                WHEN CURRENT_PREDICTED_EXITSCORE::FLOAT < 750  THEN 'Under 750'
+                WHEN CURRENT_PREDICTED_EXITSCORE::FLOAT < 800  THEN '750–799'
+                WHEN CURRENT_PREDICTED_EXITSCORE::FLOAT < 850  THEN '800–849'
+                WHEN CURRENT_PREDICTED_EXITSCORE::FLOAT < 900  THEN '850–899'
+                WHEN CURRENT_PREDICTED_EXITSCORE::FLOAT < 950  THEN '900–949'
+                ELSE '950+'
+            END                                                          AS score_band,
+            COUNT(*)                                                     AS n_students,
+            ROUND(MEDIAN(ABS(CURRENT_ACTUAL_EXITSCORE::FLOAT
+                           - CURRENT_PREDICTED_EXITSCORE::FLOAT)), 1)   AS medae,
+            ROUND(AVG(CURRENT_ACTUAL_EXITSCORE::FLOAT
+                    - CURRENT_PREDICTED_EXITSCORE::FLOAT), 1)           AS avg_bias,
+            ROUND(PERCENTILE_CONT(0.25) WITHIN GROUP
+                  (ORDER BY ABS(CURRENT_ACTUAL_EXITSCORE::FLOAT
+                              - CURRENT_PREDICTED_EXITSCORE::FLOAT)), 1) AS p25_error,
+            ROUND(PERCENTILE_CONT(0.75) WITHIN GROUP
+                  (ORDER BY ABS(CURRENT_ACTUAL_EXITSCORE::FLOAT
+                              - CURRENT_PREDICTED_EXITSCORE::FLOAT)), 1) AS p75_error
+        FROM {DB}.HESIDW_FACT_STUDENT_PREDICTION
+        WHERE CURRENT_ACTUAL_EXITSCORE IS NOT NULL
+          AND CURRENT_PREDICTED_EXITSCORE IS NOT NULL
+        GROUP BY 1
+        ORDER BY MIN(CURRENT_PREDICTED_EXITSCORE::FLOAT)
+    """, "error by predicted score band")
+    save("error_by_score_band", df_band.rename(columns=str.lower).to_dict(orient="records"))
 
     conn.close()
 
